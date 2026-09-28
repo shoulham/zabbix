@@ -11,6 +11,9 @@ Zabbix vCenter Daily Report v2.0 By Shoulham
 - 2026-8-26 v2.0
 - 新增ESXi主机内存占用率情况及趋势
 - 配合zabbix插件-趋势报表
+
+-2026-9-28 v3.0
+-提高安全性，将使用账户密码登陆zabbix api改成zabbix_token方式
 """
 
 import requests, json, sys, time, base64, os, smtplib, ssl, argparse
@@ -21,54 +24,40 @@ urllib3.disable_warnings()
 
 # ===== ZABBIX =====
 _Z_U = "https://localhost/api_jsonrpc.php"
-_Z_T = "/tmp/zabbix_rpt_token.txt"
-_Z_P = "xx"
-_Z_UNAME = "xx"
+_Z_AUTH_TOKEN = "zabbix_token"
 _VC_GRP = "23"
 _ESXI_GRP = "7"
 _CACHE = "/tmp/zabbix_rpt_data.json"
 _DISC_CACHE = "/tmp/zabbix_discovery_cache.json"
 
 # ===== SMTP =====
-_S_HOST = "smtp.xx.com"
+_S_HOST = "发送邮箱服务器地址"
 _S_PORT = 465
-_S_USER = "yy@xx.com"
-_S_PASS = "xx"
-_S_TO = ["zz@v.com"]
+_S_USER = "发送邮箱账户"
+_S_PASS = "发送邮箱密码"
+_S_TO = ["接收邮件账户地址"]
 
 # ===== LLM =====
-_L_URL = "大模型API"
-_L_KEY = "API-KEY"
+_L_URL = "大模型API地址“
+_L_KEY = "API-Key"
 _L_MODEL = "模型名称"
 _L_TO = 120
 _L_MAX = 2048
 _DAYS = 7
 
 def _api(method, params):
-    if not os.path.exists(_Z_T):
-        return None
-    with open(_Z_T) as f:
-        tok = f.read().strip()
     r = requests.post(_Z_U, json={
         "jsonrpc": "2.0", "method": method, "params": params,
-        "auth": tok, "id": int(time.time())
+        "auth": _Z_AUTH_TOKEN, "id": int(time.time())
     }, verify=False, timeout=60)
     return r.json()
 
 def _login():
-    pw = base64.b64decode(_Z_P.encode()).decode()
-    r = requests.post(_Z_U, json={
-        "jsonrpc": "2.0", "method": "user.login",
-        "params": {"username": _Z_UNAME, "password": pw},
-        "id": int(time.time())
-    }, verify=False, timeout=30)
-    res = r.json()
-    if "result" in res:
-        with open(_Z_T, "w") as f:
-            f.write(res["result"])
-        return True
-    print(f"Login failed: {res.get('error', 'unknown')}")
-    return False
+    try:
+        res = _api("host.get", {"output": ["hostid"], "limit": 1})
+        return res is not None and "result" in res
+    except Exception:
+        return False
 
 def _hist(iid, vt="0", days=None):
     if days is None:
